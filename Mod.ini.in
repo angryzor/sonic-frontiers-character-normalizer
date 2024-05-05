@@ -1,0 +1,17 @@
+[Desc]
+Version="${PROJECT_VERSION}"
+Author="${PROJECT_AUTHOR}"
+Title="${PROJECT_DESCRIPTION}"
+Description="${PROJECT_LONG_DESCRIPTION}"
+Date="${PROJECT_BUILD_DATE}"
+AuthorURL="${PROJECT_AUTHOR_URL}"
+[Main]
+UpdateServer="${PROJECT_UPDATE_SERVER}"
+SaveFile=""
+ID="${PROJECT_AUTHOR}.${PROJECT_NAME}"
+IncludeDir0="."
+IncludeDirCount=1
+DependsCount=0
+DLLFile="${PROJECT_NAME}.dll"
+CodeFile=""
+ConfigSchemaFile=""
