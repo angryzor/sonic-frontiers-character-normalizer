@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(character-normalizer VERSION 0.1.0
+project(character-normalizer VERSION 0.1.1
                  DESCRIPTION "Character Normalizer"
                  LANGUAGES CXX)
 
@@ -63,4 +63,4 @@ cmake_path(APPEND GAME_FOLDER_NORMALIZED "Mods/${PROJECT_NAME}" OUTPUT_VARIABLE 
 
 install(TARGETS mod RUNTIME DESTINATION "${MOD_FOLDER}")
 install(DIRECTORY resources/ DESTINATION "${MOD_FOLDER}")
-install(FILES LICENSE.txt "${CMAKE_CURRENT_BINARY_DIR}/Mod.ini" DESTINATION "${MOD_FOLDER}")
+install(FILES LICENSE.txt "${CMAKE_CURRENT_BINARY_DIR}/mod.ini" DESTINATION "${MOD_FOLDER}")
