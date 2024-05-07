@@ -99,6 +99,94 @@ HOOK(void, __fastcall, GOCPlayerHsmSetup, 0x14AED53B0, app::player::GOCPlayerHsm
 	originalGOCPlayerHsmSetup(self, setupInfo);
 }
 
+class FakePlayer : public app::player::Player {
+public:
+	void AdditionalPlayerSetup() {
+		if (auto* levelInfo = gameManager->GetService<app::level::LevelInfo>()) {
+			if (auto* stageData = levelInfo->stageData) {
+				if (stageData->attributeFlags.test(app::level::StageData::AttributeFlags::CYBER)) {
+					switch (stageData->cyberMode) {
+					case app::level::StageData::CyberMode::SPEED_SCALE:
+						if (auto* gocPlayerParam = GetComponent<app::player::GOCPlayerParameter>())
+							if (auto* cyberMode = gocPlayerParam->GetPlayerParameter<app::rfl::PlayerParamCyberMode>()) {
+								SendMessageToGame(app::game::MsgChangeLayerTimeScale{ "CyberModeTimeScale", 0xC007FF0, cyberMode->timeScale });
+								SendMessageToGame(app::game::MsgChangeGlobalTimeScale{ "CyberModeTimeScaleGlobal", cyberMode->timeScale });
+							}
+						break;
+
+					case app::level::StageData::CyberMode::NITRO:
+						if (auto* gocPlayerHsm = GetComponent<app::player::GOCPlayerHsm>())
+							if (auto& statePluginMgr = gocPlayerHsm->statePluginManager)
+								if (auto* statePluginBoost = statePluginMgr->GetPlugin<app::player::StatePluginBoost>())
+									statePluginBoost->SetNitroMode();
+						break;
+
+					case app::level::StageData::CyberMode::MAX_SPEED_CHALLENGE:
+						if (auto* gocPlayerHsm = GetComponent<app::player::GOCPlayerHsm>())
+							if (auto& statePluginMgr = gocPlayerHsm->statePluginManager)
+								if (auto* statePluginBoost = statePluginMgr->GetPlugin<app::player::StatePluginBoost>()) {
+									statePluginBoost->SetBoostType(2);
+									statePluginBoost->SetUnk1(1);
+								}
+						if (auto* gocPlayerBlackboard = GetComponent<app::player::GOCPlayerBlackboard>())
+							if (auto* blackboardStatus = gocPlayerBlackboard->blackboard->GetContent<app::player::BlackboardStatus>())
+								blackboardStatus->SetWorldFlag(app::player::BlackboardStatus::WorldFlag::MAX_SPEED_CHALLENGE, true);
+						break;
+
+					case app::level::StageData::CyberMode::LOW_GRAVITY:
+						if (auto* gocPlayerParam = GetComponent<app::player::GOCPlayerParameter>())
+							if (auto* cyberMode = gocPlayerParam->GetPlayerParameter<app::rfl::PlayerParamCyberMode>())
+								if (auto* gocPlayerKineParams = GetComponent<app::player::GOCPlayerKinematicParams>()) {
+									gocPlayerKineParams->SetGravityScale(cyberMode->lowGravityScale);
+								}
+						break;
+					}
+
+					if (auto* gocPlayerHsm = GetComponent<app::player::GOCPlayerHsm>())
+						if (auto& statePluginMgr = gocPlayerHsm->statePluginManager) {
+							auto* cyberStart = new (GetAllocator()) app::player::StatePluginCyberStart(GetAllocator());
+							cyberStart->context = statePluginMgr->context;
+							statePluginMgr->AddPlugin(cyberStart);
+
+							if (setupInfo.unk2 != 1)
+								cyberStart->Setup();
+						}
+				}
+			}
+		}
+	}
+
+	void AdditionalPlayerTeardown() {
+		if (auto* levelInfo = gameManager->GetService<app::level::LevelInfo>())
+			if (auto* stageData = levelInfo->stageData)
+				if (stageData->attributeFlags.test(app::level::StageData::AttributeFlags::CYBER))
+					if (stageData->cyberMode == app::level::StageData::CyberMode::SPEED_SCALE) {
+						SendMessageToGame(app::game::MsgRevertLayerTimeScale{ "CyberModeTimeScale", 0xC007FF0 });
+						SendMessageToGame(app::game::MsgRevertGlobalTimeScale{ "CyberModeTimeScaleGlobal" });
+					}
+	}
+};
+
+HOOK(void, __fastcall, Amy_SetupPlayer, 0x140886900, FakePlayer* self) {
+	originalAmy_SetupPlayer(self);
+	self->AdditionalPlayerSetup();
+}
+
+HOOK(void, __fastcall, Others_TeardownPlayer, 0x140886870, FakePlayer* self) {
+	originalOthers_TeardownPlayer(self);
+	self->AdditionalPlayerTeardown();
+}
+
+HOOK(void, __fastcall, Knuckles_SetupPlayer, 0x140888930, FakePlayer* self) {
+	originalKnuckles_SetupPlayer(self);
+	self->AdditionalPlayerSetup();
+}
+
+HOOK(void, __fastcall, Tails_SetupPlayer, 0x14088D0F0, FakePlayer* self) {
+	originalTails_SetupPlayer(self);
+	self->AdditionalPlayerSetup();
+}
+
 void CreateSpoofedStateDescArrays() {
 	SpoofedStateDescArray* spoofedArrays[] = { &spoofedAmyStateDescArray, &spoofedKnucklesStateDescArray, &spoofedTailsStateDescArray };
 	const app::player::GOCPlayerHsm::StateDescRef* arrays[] = { amyStateDescs, knucklesStateDescs, tailsStateDescs };
@@ -133,4 +221,8 @@ void Bootstrap() {
 	INSTALL_HOOK(GetPlayerParameter);
 	INSTALL_HOOK(LoadPlayerParams);
 	INSTALL_HOOK(GOCPlayerHsmSetup);
+	INSTALL_HOOK(Amy_SetupPlayer);
+	INSTALL_HOOK(Knuckles_SetupPlayer);
+	INSTALL_HOOK(Tails_SetupPlayer);
+	INSTALL_HOOK(Others_TeardownPlayer);
 }
