@@ -1,35 +1,71 @@
 #include "Bootstrap.h"
 
+inline app::rfl::ModePackage* GetSonicCyberModePackage() {
+	return &hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<app::rfl::SonicParameters>>("player_common")->reflectionData->cyberspace;
+}
+
+inline app::rfl::ModePackage* GetCyberModePackageFromResource(const char* resourceName) {
+	auto* rfl = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<app::rfl::ModePackage>>(resourceName);
+	return rfl == nullptr ? nullptr : rfl->reflectionData;
+}
+
+inline app::rfl::ModePackage* GetCyberModePackage(app::player::CharacterId characterId) {
+	switch (characterId) {
+	case app::player::CharacterId::SONIC: return GetSonicCyberModePackage();
+	case app::player::CharacterId::AMY: return GetCyberModePackageFromResource("amy_modepackage_cyber");
+	case app::player::CharacterId::TAILS: return GetCyberModePackageFromResource("tails_modepackage_cyber");
+	case app::player::CharacterId::KNUCKLES: return GetCyberModePackageFromResource("knuckles_modepackage_cyber");
+	default: return GetSonicCyberModePackage();
+	}
+}
+
+template<typename T>
+inline void LoadParameters(app::player::GOCPlayerParameter* playerParam, app::player::CharacterId characterId, const char* resourceName) {
+	auto* parameters = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<T>>(resourceName);
+
+	playerParam->characterId = characterId;
+	*reinterpret_cast<hh::fnd::Reference<hh::fnd::ResReflection<T>>*>(&playerParam->characterParameters) = parameters;
+
+	playerParam->modePackages[0] = &parameters->reflectionData->forwardView;
+	playerParam->modePackages[1] = &parameters->reflectionData->forwardView;
+	playerParam->modePackages[2] = GetCyberModePackage(characterId);
+	playerParam->modePackages[3] = &parameters->reflectionData->cyberspaceSV;
+}
+
+inline void LoadCharacterParameters(app::player::GOCPlayerParameter* playerParam, app::player::CharacterId charId) {
+	switch (charId) {
+	case app::player::CharacterId::SONIC: LoadParameters<app::rfl::SonicParameters>(playerParam, charId, "player_common"); break;
+	case app::player::CharacterId::AMY: LoadParameters<app::rfl::AmyParameters>(playerParam, charId, "amy_common"); break;
+	case app::player::CharacterId::KNUCKLES: LoadParameters<app::rfl::KnucklesParameters>(playerParam, charId, "knuckles_common"); break;
+	case app::player::CharacterId::TAILS: LoadParameters<app::rfl::TailsParameters>(playerParam, charId, "tails_common"); break;
+	default: LoadParameters<app::rfl::SonicParameters>(playerParam, charId, "player_common"); break;
+	}
+}
+
 HOOK(void*, __fastcall, GetPlayerParameter, 0x1408B4060, app::player::GOCPlayerParameter* self, const hh::fnd::RflClass* rflClass)
 {
-	void* orig = originalGetPlayerParameter(self, rflClass);
+	void* result = originalGetPlayerParameter(self, rflClass);
 
-	if (self->characterId != app::player::CharacterId::SONIC && orig == nullptr) {
-		app::player::CharacterId cid = self->characterId;
-		hh::fnd::Reference<hh::fnd::ResReflection<app::rfl::SonicParameters>> params = &self->characterParameters->sonic;
-		hh::fnd::Reference<hh::fnd::ResReflection<app::rfl::SonicParameters>> sonicParams = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<app::rfl::SonicParameters>>("player_common");
-		app::rfl::ModePackage* modePackages[4];
+	if (result == nullptr) {
+		app::player::CharacterId originalCharacterId = self->characterId;
 
-		self->characterId = app::player::CharacterId::SONIC;
-		*reinterpret_cast<hh::fnd::Reference<hh::fnd::ResReflection<app::rfl::SonicParameters>>*>(&self->characterParameters) = sonicParams;
-		for (size_t i = 0; i < 4; i++)
-			modePackages[i] = self->modePackages[i];
+		for (uint32_t iCid = 0; iCid < 4 && result == nullptr; iCid++) {
+			app::player::CharacterId cid{ iCid };
 
-		self->modePackages[0] = &sonicParams->reflectionData->forwardView;
-		self->modePackages[1] = &sonicParams->reflectionData->forwardView;
-		self->modePackages[2] = &sonicParams->reflectionData->cyberspace;
-		self->modePackages[3] = &sonicParams->reflectionData->cyberspaceSV;
+			if (cid == originalCharacterId)
+				continue;
 
-		orig = originalGetPlayerParameter(self, rflClass);
+			LoadCharacterParameters(self, cid);
 
-		self->characterId = cid;
-		*reinterpret_cast<hh::fnd::Reference<hh::fnd::ResReflection<app::rfl::SonicParameters>>*>(&self->characterParameters) = params;
+			result = originalGetPlayerParameter(self, rflClass);
+		}
 
-		for (size_t i = 0; i < 4; i++)
-			self->modePackages[i] = modePackages[i];
+		// Technically unsafe because the resource could deallocate and then the GOCPlayerParameter::xxxParameters pointers would be wrong,
+		// but I don't think this would happen in practice as the playercommon packfile doesn't really unload.
+		LoadCharacterParameters(self, originalCharacterId);
 	}
 
-	return orig;
+	return result;
 }
 
 HOOK(void, __fastcall, LoadPlayerParams, 0x1408B3790, app::player::GOCPlayerParameter* self)
@@ -38,30 +74,18 @@ HOOK(void, __fastcall, LoadPlayerParams, 0x1408B3790, app::player::GOCPlayerPara
 
 	if (self->characterId != app::player::CharacterId::SONIC) {
 		auto cyberMode = static_cast<size_t>(app::player::GOCPlayerParameter::Mode::CYBERSPACE_FORWARD_VIEW);
-		hh::fnd::ResReflection<app::rfl::ModePackage>* spoofedModePackage{};
+		app::rfl::ModePackage* spoofedModePackage = GetCyberModePackage(self->characterId);
 
-		switch (self->characterId) {
-		case app::player::CharacterId::AMY:
-			spoofedModePackage = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<app::rfl::ModePackage>>("amy_modepackage_cyber");
-			break;
-		case app::player::CharacterId::TAILS:
-			spoofedModePackage = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<app::rfl::ModePackage>>("tails_modepackage_cyber");
-			break;
-		case app::player::CharacterId::KNUCKLES:
-			spoofedModePackage = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<app::rfl::ModePackage>>("knuckles_modepackage_cyber");
-			break;
-		}
+		if (spoofedModePackage) {
+			self->modePackages[cyberMode] = spoofedModePackage;
 
-		if (spoofedModePackage && spoofedModePackage->reflectionData) {
-			self->modePackages[cyberMode] = spoofedModePackage->reflectionData;
-
-			self->commonParameters[cyberMode] = self->commonParameters[cyberMode] ? self->commonParameters[cyberMode] : &self->modePackages[cyberMode]->common;
-			self->speedParameters[cyberMode] = self->speedParameters[cyberMode] ? self->speedParameters[cyberMode] : &self->modePackages[cyberMode]->speed;
-			self->jumpParameters[cyberMode] = self->jumpParameters[cyberMode] ? self->jumpParameters[cyberMode] : &self->modePackages[cyberMode]->jump;
-			self->jumpSpeedParameters[cyberMode] = self->jumpSpeedParameters[cyberMode] ? self->jumpSpeedParameters[cyberMode] : &self->modePackages[cyberMode]->jumpSpeed;
-			self->doubleJumpParameters[cyberMode] = self->doubleJumpParameters[cyberMode] ? self->doubleJumpParameters[cyberMode] : &self->modePackages[cyberMode]->doubleJump;
-			self->boostParameters[cyberMode] = self->boostParameters[cyberMode] ? self->boostParameters[cyberMode] : &self->modePackages[cyberMode]->boost;
-			self->airBoostParameters[cyberMode] = self->airBoostParameters[cyberMode] ? self->airBoostParameters[cyberMode] : &self->modePackages[cyberMode]->airboost;
+			self->commonParameters[cyberMode] = &spoofedModePackage->common;
+			self->speedParameters[cyberMode] = &spoofedModePackage->speed;
+			self->jumpParameters[cyberMode] = &spoofedModePackage->jump;
+			self->jumpSpeedParameters[cyberMode] = &spoofedModePackage->jumpSpeed;
+			self->doubleJumpParameters[cyberMode] = &spoofedModePackage->doubleJump;
+			self->boostParameters[cyberMode] = &spoofedModePackage->boost;
+			self->airBoostParameters[cyberMode] = &spoofedModePackage->airboost;
 		}
 	}
 }
@@ -69,6 +93,19 @@ HOOK(void, __fastcall, LoadPlayerParams, 0x1408B3790, app::player::GOCPlayerPara
 struct SpoofedStateDescArray {
 	app::player::GOCPlayerHsm::StateDescRef stateDescs[400]{};
 	size_t size{};
+
+	inline void Set(const app::player::GOCPlayerHsm::StateDescRef* originalArray, size_t newSize) {
+		size = newSize;
+		memcpy(stateDescs, originalArray, newSize * sizeof(app::player::GOCPlayerHsm::StateDescRef));
+	}
+
+	inline void Add(const app::player::GOCPlayerHsm::StateDescRef& ref) {
+		for (size_t i = 0; i < size; i++)
+			if (ref.id == stateDescs[i].id)
+				return;
+
+		stateDescs[size++] = ref;
+	}
 };
 
 static auto* sonicStateDescs = rangerssdk::GetAddress(app::player::Sonic::stateDescs);
@@ -76,25 +113,25 @@ static auto* amyStateDescs = rangerssdk::GetAddress(app::player::Amy::stateDescs
 static auto* knucklesStateDescs = rangerssdk::GetAddress(app::player::Knuckles::stateDescs);
 static auto* tailsStateDescs = rangerssdk::GetAddress(app::player::Tails::stateDescs);
 
+static SpoofedStateDescArray spoofedSonicStateDescArray;
 static SpoofedStateDescArray spoofedAmyStateDescArray;
 static SpoofedStateDescArray spoofedKnucklesStateDescArray;
 static SpoofedStateDescArray spoofedTailsStateDescArray;
 
 const SpoofedStateDescArray& GetSpoofedArray(const app::player::GOCPlayerHsm::StateDescRef* normalArray) {
+	if (normalArray == sonicStateDescs) return spoofedSonicStateDescArray;
 	if (normalArray == amyStateDescs) return spoofedAmyStateDescArray;
 	if (normalArray == knucklesStateDescs) return spoofedKnucklesStateDescArray;
 	if (normalArray == tailsStateDescs) return spoofedTailsStateDescArray;
-	return spoofedAmyStateDescArray;
+	return spoofedSonicStateDescArray;
 }
 
 HOOK(void, __fastcall, GOCPlayerHsmSetup, 0x14AED53B0, app::player::GOCPlayerHsm* self, app::player::GOCPlayerHsm::SetupInfo& setupInfo)
 {
-	if (setupInfo.stateDescs != sonicStateDescs) {
-		auto& spoofedArray = GetSpoofedArray(setupInfo.stateDescs);
+	auto& spoofedArray = GetSpoofedArray(setupInfo.stateDescs);
 
-		setupInfo.stateDescs = spoofedArray.stateDescs;
-		setupInfo.stateDescCount = spoofedArray.size;
-	}
+	setupInfo.stateDescs = spoofedArray.stateDescs;
+	setupInfo.stateDescCount = spoofedArray.size;
 
 	originalGOCPlayerHsmSetup(self, setupInfo);
 }
@@ -188,25 +225,19 @@ HOOK(void, __fastcall, Tails_SetupPlayer, 0x14088D0F0, FakePlayer* self) {
 }
 
 void CreateSpoofedStateDescArrays() {
-	SpoofedStateDescArray* spoofedArrays[] = { &spoofedAmyStateDescArray, &spoofedKnucklesStateDescArray, &spoofedTailsStateDescArray };
-	const app::player::GOCPlayerHsm::StateDescRef* arrays[] = { amyStateDescs, knucklesStateDescs, tailsStateDescs };
-	const size_t arraySizes[] = { app::player::Amy::stateDescCount, app::player::Knuckles::stateDescCount, app::player::Tails::stateDescCount };
+	SpoofedStateDescArray* spoofedArrays[] = { &spoofedSonicStateDescArray, &spoofedAmyStateDescArray, &spoofedKnucklesStateDescArray, &spoofedTailsStateDescArray };
+	const app::player::GOCPlayerHsm::StateDescRef* arrays[] = { sonicStateDescs, amyStateDescs, knucklesStateDescs, tailsStateDescs };
+	const size_t arraySizes[] = { app::player::Sonic::stateDescCount, app::player::Amy::stateDescCount, app::player::Knuckles::stateDescCount, app::player::Tails::stateDescCount };
 
-	for (size_t i = 0; i < 3; i++) {
-		spoofedArrays[i]->size = arraySizes[i];
+	for (size_t targetCharacterId = 0; targetCharacterId < 4; targetCharacterId++) {
+		spoofedArrays[targetCharacterId]->Set(arrays[targetCharacterId], arraySizes[targetCharacterId]);
 
-		memcpy(spoofedArrays[i]->stateDescs, arrays[i], spoofedArrays[i]->size * sizeof(app::player::GOCPlayerHsm::StateDescRef));
+		for (size_t sourceCharacterId = 0; sourceCharacterId < 4; sourceCharacterId++) {
+			if (sourceCharacterId == targetCharacterId)
+				continue;
 
-		for (size_t j = 0; j < app::player::Sonic::stateDescCount; j++) {
-			bool found = false;
-			for (size_t k = 0; k < arraySizes[i]; k++) {
-				if (sonicStateDescs[j].id == spoofedArrays[i]->stateDescs[k].id) {
-					found = true;
-					break;
-				}
-			}
-			if (!found)
-				spoofedArrays[i]->stateDescs[spoofedArrays[i]->size++] = sonicStateDescs[j];
+			for (size_t i = 0; i < arraySizes[sourceCharacterId]; i++)
+				spoofedArrays[targetCharacterId]->Add(arrays[sourceCharacterId][i]);
 		}
 	}
 }
