@@ -1,6 +1,6 @@
 #include "Bootstrap.h"
 
-HOOK(uint64_t, __fastcall, GameModeBootInit, 0x14734FB80, app::game::GameMode* self) {
+HOOK(uint64_t, __fastcall, GameModeBootInit, 0x1401AADF0, app::game::GameMode* self) {
 	auto res = originalGameModeBootInit(self);
 	Bootstrap();
 	return res;

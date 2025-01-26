@@ -1,15 +1,15 @@
 #include "Bootstrap.h"
 
-inline app::rfl::ModePackage* GetSonicCyberModePackage() {
-	return &hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<app::rfl::SonicParameters>>("player_common")->reflectionData->cyberspace;
+inline heur::rfl::ModePackage* GetSonicCyberModePackage() {
+	return &hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflectionT<heur::rfl::SonicParameters>>("player_common")->GetData()->cyberspace;
 }
 
-inline app::rfl::ModePackage* GetCyberModePackageFromResource(const char* resourceName) {
-	auto* rfl = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<app::rfl::ModePackage>>(resourceName);
-	return rfl == nullptr ? nullptr : rfl->reflectionData;
+inline heur::rfl::ModePackage* GetCyberModePackageFromResource(const char* resourceName) {
+	auto* rfl = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflectionT<heur::rfl::ModePackage>>(resourceName);
+	return rfl == nullptr ? nullptr : rfl->GetData();
 }
 
-inline app::rfl::ModePackage* GetCyberModePackage(app::player::CharacterId characterId) {
+inline heur::rfl::ModePackage* GetCyberModePackage(app::player::CharacterId characterId) {
 	switch (characterId) {
 	case app::player::CharacterId::SONIC: return GetSonicCyberModePackage();
 	case app::player::CharacterId::AMY: return GetCyberModePackageFromResource("amy_modepackage_cyber");
@@ -21,24 +21,24 @@ inline app::rfl::ModePackage* GetCyberModePackage(app::player::CharacterId chara
 
 template<typename T>
 inline void LoadParameters(app::player::GOCPlayerParameter* playerParam, app::player::CharacterId characterId, const char* resourceName) {
-	auto* parameters = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflection<T>>(resourceName);
+	auto* parameters = hh::fnd::ResourceManager::GetInstance()->GetResource<hh::fnd::ResReflectionT<T>>(resourceName);
 
 	playerParam->characterId = characterId;
-	*reinterpret_cast<hh::fnd::Reference<hh::fnd::ResReflection<T>>*>(&playerParam->characterParameters) = parameters;
+	*reinterpret_cast<hh::fnd::Reference<hh::fnd::ResReflectionT<T>>*>(&playerParam->characterParameters) = parameters;
 
-	playerParam->modePackages[0] = &parameters->reflectionData->forwardView;
-	playerParam->modePackages[1] = &parameters->reflectionData->forwardView;
+	playerParam->modePackages[0] = &parameters->GetData()->forwardView;
+	playerParam->modePackages[1] = &parameters->GetData()->forwardView;
 	playerParam->modePackages[2] = GetCyberModePackage(characterId);
-	playerParam->modePackages[3] = &parameters->reflectionData->cyberspaceSV;
+	playerParam->modePackages[3] = &parameters->GetData()->cyberspaceSV;
 }
 
 inline void LoadCharacterParameters(app::player::GOCPlayerParameter* playerParam, app::player::CharacterId charId) {
 	switch (charId) {
-	case app::player::CharacterId::SONIC: LoadParameters<app::rfl::SonicParameters>(playerParam, charId, "player_common"); break;
-	case app::player::CharacterId::AMY: LoadParameters<app::rfl::AmyParameters>(playerParam, charId, "amy_common"); break;
-	case app::player::CharacterId::KNUCKLES: LoadParameters<app::rfl::KnucklesParameters>(playerParam, charId, "knuckles_common"); break;
-	case app::player::CharacterId::TAILS: LoadParameters<app::rfl::TailsParameters>(playerParam, charId, "tails_common"); break;
-	default: LoadParameters<app::rfl::SonicParameters>(playerParam, charId, "player_common"); break;
+	case app::player::CharacterId::SONIC: LoadParameters<heur::rfl::SonicParameters>(playerParam, charId, "player_common"); break;
+	case app::player::CharacterId::AMY: LoadParameters<heur::rfl::AmyParameters>(playerParam, charId, "amy_common"); break;
+	case app::player::CharacterId::KNUCKLES: LoadParameters<heur::rfl::KnucklesParameters>(playerParam, charId, "knuckles_common"); break;
+	case app::player::CharacterId::TAILS: LoadParameters<heur::rfl::TailsParameters>(playerParam, charId, "tails_common"); break;
+	default: LoadParameters<heur::rfl::SonicParameters>(playerParam, charId, "player_common"); break;
 	}
 }
 
@@ -74,7 +74,7 @@ HOOK(void, __fastcall, LoadPlayerParams, 0x1408B3790, app::player::GOCPlayerPara
 
 	if (self->characterId != app::player::CharacterId::SONIC) {
 		auto cyberMode = static_cast<size_t>(app::player::GOCPlayerParameter::Mode::CYBERSPACE_FORWARD_VIEW);
-		app::rfl::ModePackage* spoofedModePackage = GetCyberModePackage(self->characterId);
+		heur::rfl::ModePackage* spoofedModePackage = GetCyberModePackage(self->characterId);
 
 		if (spoofedModePackage) {
 			self->modePackages[cyberMode] = spoofedModePackage;
@@ -126,7 +126,7 @@ const SpoofedStateDescArray& GetSpoofedArray(const app::player::GOCPlayerHsm::St
 	return spoofedSonicStateDescArray;
 }
 
-HOOK(void, __fastcall, GOCPlayerHsmSetup, 0x14AED53B0, app::player::GOCPlayerHsm* self, app::player::GOCPlayerHsm::SetupInfo& setupInfo)
+HOOK(void, __fastcall, GOCPlayerHsmSetup, 0x14AE48C40, app::player::GOCPlayerHsm* self, app::player::GOCPlayerHsm::SetupInfo& setupInfo)
 {
 	auto& spoofedArray = GetSpoofedArray(setupInfo.stateDescs);
 
@@ -145,9 +145,12 @@ public:
 					switch (stageData->cyberMode) {
 					case app::level::StageData::CyberMode::SPEED_SCALE:
 						if (auto* gocPlayerParam = GetComponent<app::player::GOCPlayerParameter>())
-							if (auto* cyberMode = gocPlayerParam->GetPlayerParameter<app::rfl::PlayerParamCyberMode>()) {
-								SendMessageToGame(app::game::MsgChangeLayerTimeScale{ "CyberModeTimeScale", 0xC007FF0, cyberMode->timeScale });
-								SendMessageToGame(app::game::MsgChangeGlobalTimeScale{ "CyberModeTimeScaleGlobal", cyberMode->timeScale });
+							if (auto* cyberMode = gocPlayerParam->GetPlayerParameter<heur::rfl::PlayerParamCyberMode>()) {
+								app::game::MsgChangeLayerTimeScale changeLayerTimeScale{ "CyberModeTimeScale", 0xC007FF0, cyberMode->timeScale };
+								app::game::MsgChangeGlobalTimeScale changeGlobalTimeScale{ "CyberModeTimeScaleGlobal", cyberMode->timeScale };
+
+								SendMessageToGame(changeLayerTimeScale);
+								SendMessageToGame(changeGlobalTimeScale);
 							}
 						break;
 
@@ -172,7 +175,7 @@ public:
 
 					case app::level::StageData::CyberMode::LOW_GRAVITY:
 						if (auto* gocPlayerParam = GetComponent<app::player::GOCPlayerParameter>())
-							if (auto* cyberMode = gocPlayerParam->GetPlayerParameter<app::rfl::PlayerParamCyberMode>())
+							if (auto* cyberMode = gocPlayerParam->GetPlayerParameter<heur::rfl::PlayerParamCyberMode>())
 								if (auto* gocPlayerKineParams = GetComponent<app::player::GOCPlayerKinematicParams>()) {
 									gocPlayerKineParams->SetGravityScale(cyberMode->lowGravityScale);
 								}
@@ -198,8 +201,11 @@ public:
 			if (auto* stageData = levelInfo->stageData)
 				if (stageData->attributeFlags.test(app::level::StageData::AttributeFlags::CYBER))
 					if (stageData->cyberMode == app::level::StageData::CyberMode::SPEED_SCALE) {
-						SendMessageToGame(app::game::MsgRevertLayerTimeScale{ "CyberModeTimeScale", 0xC007FF0 });
-						SendMessageToGame(app::game::MsgRevertGlobalTimeScale{ "CyberModeTimeScaleGlobal" });
+						app::game::MsgRevertLayerTimeScale revertLayerTimeScale{ "CyberModeTimeScale", 0xC007FF0 };
+						app::game::MsgRevertGlobalTimeScale revertGlobalTimeScale{ "CyberModeTimeScaleGlobal" };
+
+						SendMessageToGame(revertLayerTimeScale);
+						SendMessageToGame(revertGlobalTimeScale);
 					}
 	}
 };
